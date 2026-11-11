@@ -26,14 +26,15 @@ jobs:
             cp -R /tmp/souzas_bar_scaffold/android ./android
           fi
 
-      - name: Preparar assinatura permanente
+      - name: Preparar assinatura
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/souzas-bar-release.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -41,15 +42,13 @@ jobs:
 
           path = Path("android/app/build.gradle.kts")
           if not path.exists():
-              path = Path("android/app/build.gradle")
+              raise SystemExit("Arquivo Gradle Kotlin nao encontrado.")
 
           content = path.read_text()
+          marker = "    buildTypes {"
+          old = '            signingConfig = signingConfigs.getByName("debug")'
 
-          if path.suffix == ".kts":
-              marker = "    buildTypes {"
-              old = '            signingConfig = signingConfigs.getByName("debug")'
-              new = '            signingConfig = signingConfigs.getByName("release")'
-              config = """
+          config = '''
               signingConfigs {
                   create("release") {
                       storeFile = file(System.getenv("KEYSTORE_PATH"))
@@ -59,30 +58,19 @@ jobs:
                   }
               }
 
-              """
-          else:
-              marker = "    buildTypes {"
-              old = "            signingConfig signingConfigs.debug"
-              new = "            signingConfig signingConfigs.release"
-              config = """
-              signingConfigs {
-                  release {
-                      storeFile file(System.getenv("KEYSTORE_PATH"))
-                      storePassword System.getenv("KEYSTORE_PASSWORD")
-                      keyAlias System.getenv("KEY_ALIAS")
-                      keyPassword System.getenv("KEY_PASSWORD")
-                  }
-              }
-
-              """
+          '''
 
           if marker not in content or old not in content:
-              raise SystemExit("Modelo Gradle inesperado. Compilacao interrompida por seguranca.")
+              raise SystemExit("Modelo Gradle inesperado. Compilacao interrompida.")
 
           content = content.replace(marker, config + marker, 1)
-          content = content.replace(old, new, 1)
+          content = content.replace(
+              old,
+              '            signingConfig = signingConfigs.getByName("release")',
+              1
+          )
           path.write_text(content)
-          print("Assinatura permanente configurada.")
+          print("Assinatura configurada.")
           PY
 
       - name: Instalar dependencias
