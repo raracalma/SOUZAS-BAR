@@ -27,7 +27,8 @@ class BarOrder {
   final List<OrderItem> items;
   final DateTime createdAt;
 
-  BarOrder(this.customer, this.items) : createdAt = DateTime.now();
+  BarOrder(this.customer, this.items, {DateTime? createdAt})
+      : createdAt = createdAt ?? DateTime.now();
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
 }
@@ -75,6 +76,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null) {
       setState(() => orders.insert(0, result));
     }
+  }
+
+  Future<void> editOrder(int index) async {
+    final result = await Navigator.push<BarOrder>(context,
+      MaterialPageRoute(builder: (_) => NewOrderScreen(order: orders[index])));
+    if (result != null) setState(() => orders[index] = result);
   }
 
   @override
@@ -200,12 +207,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     SizedBox(height: 6),
                     Text('As comandas abertas aparecerão aqui.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: muted, fontSize: 12)),
+                        style: TextStyle(color: Color(0xFFFFD45A), fontSize: 12)),
                   ],
                 ),
               )
             else
-              ...orders.map((order) => _orderCard(order)),
+              ...List.generate(orders.length, (i) => _orderCard(orders[i], i)),
             const SizedBox(height: 25),
             const Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -231,33 +238,38 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  Widget _orderCard(BarOrder order) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
-    child: Row(
-      children: [
-        const Icon(Icons.receipt_long, color: green, size: 27),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-              Text('${order.items.length} itens • Em andamento',
-                  style: const TextStyle(color: muted, fontSize: 12)),
-            ],
+  Widget _orderCard(BarOrder order, int index) => InkWell(
+    onTap: () => editOrder(index),
+    borderRadius: BorderRadius.circular(20),
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        children: [
+          const Icon(Icons.receipt_long, color: green, size: 27),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                Text('${order.items.length} itens • Em andamento',
+                    style: const TextStyle(color: Color(0xFFFFD45A), fontSize: 12)),
+              ],
+            ),
           ),
-        ),
-        Text(money(order.total),
-            style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
-      ],
+          Text(money(order.total),
+              style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
+        ],
+      ),
     ),
   );
 }
 
 class NewOrderScreen extends StatefulWidget {
-  const NewOrderScreen({super.key});
+  final BarOrder? order;
+  const NewOrderScreen({super.key, this.order});
 
   @override
   State<NewOrderScreen> createState() => _NewOrderScreenState();
@@ -265,7 +277,18 @@ class NewOrderScreen extends StatefulWidget {
 
 class _NewOrderScreenState extends State<NewOrderScreen> {
   final customerController = TextEditingController();
-  final List<_ItemFields> items = [_ItemFields()];
+  late final List<_ItemFields> items;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.order == null) {
+      items = [_ItemFields()];
+    } else {
+      customerController.text = widget.order!.customer;
+      items = widget.order!.items.map((item) => _ItemFields.fromItem(item)).toList();
+    }
+  }
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
 
@@ -308,7 +331,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       return;
     }
 
-    Navigator.pop(context, BarOrder(customer, validItems));
+    Navigator.pop(context, BarOrder(customer, validItems, createdAt: widget.order?.createdAt));
   }
 
   void _message(String message) {
@@ -331,7 +354,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nova comanda', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(widget.order == null ? 'Nova comanda' : 'Editar comanda', style: const TextStyle(fontWeight: FontWeight.w800)),
         backgroundColor: const Color(0xFF101211),
       ),
       body: ListView(
@@ -470,6 +493,12 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
 }
 
 class _ItemFields {
+  _ItemFields();
+  _ItemFields.fromItem(OrderItem item) {
+    name.text = item.name;
+    quantityController.text = item.quantity.toString();
+    priceController.text = item.price.toString();
+  }
   final name = TextEditingController();
   final quantityController = TextEditingController(text: '1');
   final priceController = TextEditingController();
