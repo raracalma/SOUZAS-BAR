@@ -301,7 +301,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     super.dispose();
   }
 
-  void addItem() => setState(() => items.add(_ItemFields()));
+  Future<void> addItem() async {
+    setState(() => items.add(_ItemFields()));
+    await _editItem(items.length - 1, isNew: true);
+  }
 
   void removeItem(int index) {
     if (items.length == 1) {
@@ -384,19 +387,19 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          ...List.generate(items.length, (index) => _itemCard(index)),
+          _productTable(),
           const SizedBox(height: 20),
           Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('TOTAL DA COMANDA',
-                    style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.2)),
-                const SizedBox(height: 7),
+                const Expanded(
+                  child: Text('TOTAL DA COMANDA',
+                    style: TextStyle(color: muted, fontSize: 16, fontWeight: FontWeight.w800)),
+                ),
                 Text(money(total),
-                    style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: green)),
+                  style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: green)),
               ],
             ),
           ),
@@ -425,71 +428,141 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     );
   }
 
-  Widget _itemCard(int index) {
-    final item = items[index];
+
+  Widget _productTable() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(18)),
+      decoration: BoxDecoration(
+        color: panel,
+        border: Border.all(color: muted.withOpacity(.35)),
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('PRODUTO ${index + 1}',
-                    style: const TextStyle(color: muted, fontSize: 10, letterSpacing: 1.2)),
-              ),
-              IconButton(
-                onPressed: () => removeItem(index),
-                icon: const Icon(Icons.delete_outline),
-                color: muted,
-                tooltip: 'Remover item',
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 17),
+            decoration: const BoxDecoration(
+              color: Color(0xFF252820),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(17)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 5, child: Text('Produto', style: TextStyle(fontWeight: FontWeight.w800))),
+                Expanded(flex: 1, child: Text('Qtd.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800))),
+                Expanded(flex: 2, child: Text('Valor', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w800))),
+              ],
+            ),
           ),
-          TextField(
-            controller: item.name,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: decoration('Nome do produto', hint: 'Ex.: Refrigerante'),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: item.quantityController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
-                  decoration: decoration('Quantidade', hint: '1'),
-                  onChanged: (_) => setState(() {}),
+          ...List.generate(items.length, (index) {
+            final item = items[index];
+            return InkWell(
+              onTap: () => _editItem(index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 19),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: Text(
+                        item.name.text.isEmpty ? 'Novo produto' : item.name.text,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 1,
+                      child: Text(
+                        item.quantityController.text,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        money(item.total),
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: item.priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
-                  decoration: decoration('Preço unitário', hint: '0,00'),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              const Text('Subtotal: ', style: TextStyle(color: muted)),
-              Text(money(item.total),
-                  style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
-            ],
-          ),
+            );
+          }),
         ],
       ),
     );
   }
+
+  Future<void> _editItem(int index, {bool isNew = false}) async {
+    final item = items[index];
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => AlertDialog(
+          backgroundColor: panel,
+          title: Text(isNew ? 'Adicionar produto' : 'Editar produto'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: item.name,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: decoration('Produto', hint: 'Nome do produto'),
+                onChanged: (_) => refresh(() {}),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: item.quantityController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
+                decoration: decoration('Quantidade', hint: '1'),
+                onChanged: (_) => refresh(() {}),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: item.priceController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
+                decoration: decoration('Preço unitário', hint: '0,00'),
+                onChanged: (_) => refresh(() {}),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Subtotal: ${money(item.total)}',
+                  style: const TextStyle(color: green, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Remover', style: TextStyle(color: Colors.redAccent)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true) {
+      if (result == false || isNew) {
+        removeItem(index);
+      }
+      return;
+    }
+    setState(() {});
+  }
+
 }
 
 class _ItemFields {
