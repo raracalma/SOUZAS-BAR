@@ -26,9 +26,12 @@ class BarOrder {
   final String customer;
   final List<OrderItem> items;
   final DateTime createdAt;
+  final bool isClosed;
 
-  BarOrder(this.customer, this.items, {DateTime? createdAt})
-      : createdAt = createdAt ?? DateTime.now();
+  BarOrder(this.customer, this.items, {
+    DateTime? createdAt,
+    this.isClosed = false,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
 }
@@ -157,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       _metric('CLIENTES', '${orders.length}'),
                       const SizedBox(width: 28),
-                      _metric('COMANDAS ABERTAS', '${orders.length}'),
+                      _metric('COMANDAS ABERTAS', '${orders.where((order) => !order.isClosed).length}'),
                     ],
                   ),
                 ],
@@ -254,8 +257,14 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                Text('${order.items.length} itens • Em andamento',
-                    style: const TextStyle(color: Color(0xFFFFD45A), fontSize: 12)),
+                Text(
+                  '${order.items.length} itens • ${order.isClosed ? 'FECHADO' : 'Em andamento'}',
+                  style: TextStyle(
+                    color: order.isClosed ? const Color(0xFFFF5C5C) : const Color(0xFFFFD45A),
+                    fontSize: 12,
+                    fontWeight: order.isClosed ? FontWeight.w800 : FontWeight.normal,
+                  ),
+                ),
               ],
             ),
           ),
@@ -318,7 +327,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     });
   }
 
-  void save() {
+  void save({bool finalize = false}) {
     final customer = customerController.text.trim();
     final validItems = items
         .where((item) => item.name.text.trim().isNotEmpty && item.quantity > 0 && item.price > 0)
@@ -334,7 +343,35 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       return;
     }
 
-    Navigator.pop(context, BarOrder(customer, validItems, createdAt: widget.order?.createdAt));
+    Navigator.pop(context, BarOrder(
+      customer,
+      validItems,
+      createdAt: widget.order?.createdAt,
+      isClosed: finalize || (widget.order?.isClosed ?? false),
+    ));
+  }
+
+  Future<void> finalizeOrder() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: panel,
+        title: const Text('Finalizar pedido?'),
+        content: const Text('A comanda será marcada como fechada.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF5C5C)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Finalizar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) save(finalize: true);
   }
 
   void _message(String message) {
@@ -403,7 +440,27 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          if (widget.order?.isClosed != true)
+            SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: finalizeOrder,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('FINALIZAR PEDIDO',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFFF5C5C),
+                  side: const BorderSide(color: Color(0xFFFF5C5C)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            )
+          else
+            const Text('PEDIDO FECHADO',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFFFF5C5C), fontWeight: FontWeight.w800)),
+          const SizedBox(height: 16),
           SizedBox(
             height: 56,
             child: FilledButton.icon(
