@@ -84,8 +84,6 @@ jobs:
           path.write_text(content)
           print("Assinatura permanente configurada.")
           PY
-        env:
-          KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
 
       - name: Instalar dependencias
         run: flutter pub get
