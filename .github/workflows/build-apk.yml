@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Baixar codigo
         uses: actions/checkout@v4
@@ -25,14 +26,80 @@ jobs:
             cp -R /tmp/souzas_bar_scaffold/android ./android
           fi
 
+      - name: Preparar assinatura permanente
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/souzas-bar-release.jks"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("android/app/build.gradle.kts")
+          if not path.exists():
+              path = Path("android/app/build.gradle")
+
+          content = path.read_text()
+
+          if path.suffix == ".kts":
+              marker = "    buildTypes {"
+              old = '            signingConfig = signingConfigs.getByName("debug")'
+              new = '            signingConfig = signingConfigs.getByName("release")'
+              config = """
+              signingConfigs {
+                  create("release") {
+                      storeFile = file(System.getenv("KEYSTORE_PATH"))
+                      storePassword = System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("KEY_ALIAS")
+                      keyPassword = System.getenv("KEY_PASSWORD")
+                  }
+              }
+
+              """
+          else:
+              marker = "    buildTypes {"
+              old = "            signingConfig signingConfigs.debug"
+              new = "            signingConfig signingConfigs.release"
+              config = """
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv("KEYSTORE_PATH"))
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+
+              """
+
+          if marker not in content or old not in content:
+              raise SystemExit("Modelo Gradle inesperado. Compilacao interrompida por seguranca.")
+
+          content = content.replace(marker, config + marker, 1)
+          content = content.replace(old, new, 1)
+          path.write_text(content)
+          print("Assinatura permanente configurada.")
+          PY
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
+
       - name: Instalar dependencias
         run: flutter pub get
 
-      - name: Compilar APK
-        run: flutter build apk --debug
+      - name: Compilar APK Release
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: flutter build apk --release
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: souzas-bar-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: souzas-bar-release
+          path: build/app/outputs/flutter-apk/app-release.apk
