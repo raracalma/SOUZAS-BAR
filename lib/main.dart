@@ -1,3 +1,4 @@
+import 'database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -23,17 +24,34 @@ class OrderItem {
 }
 
 class BarOrder {
+  final int? id;
   final String customer;
   final List<OrderItem> items;
   final DateTime createdAt;
   final bool isClosed;
 
   BarOrder(this.customer, this.items, {
+    this.id,
     DateTime? createdAt,
     this.isClosed = false,
   }) : createdAt = createdAt ?? DateTime.now();
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
+
+  factory BarOrder.fromMap(Map<String, Object?> row) {
+    final savedItems = row['items'] as List<Map<String, Object?>>;
+    return BarOrder(
+      row['customer'] as String,
+      savedItems.map((item) => OrderItem(
+        item['name'] as String,
+        (item['quantity'] as num).toDouble(),
+        (item['price'] as num).toDouble(),
+      )).toList(),
+      id: row['id'] as int,
+      createdAt: DateTime.parse(row['created_at'] as String),
+      isClosed: (row['is_closed'] as int) == 1,
+    );
+  }
 }
 
 class SouzasBarApp extends StatelessWidget {
@@ -67,6 +85,33 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final List<BarOrder> orders = [];
+  bool loadingOrders = true;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSavedOrders();
+  }
+
+  Future<void> loadSavedOrders() async {
+    try {
+      final rows = await BarDatabase.instance.loadOrders();
+      final loaded = rows.map((row) => BarOrder.fromMap(row)).toList();
+      if (!mounted) return;
+      setState(() {
+        orders
+          ..clear()
+          ..addAll(loaded);
+        loadingOrders = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => loadingOrders = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao carregar comandas: $e')),
+      );
+    }
+  }
 
   double get total => orders.fold(0, (sum, order) => sum + order.total);
 
@@ -76,9 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const NewOrderScreen()),
     );
 
-    if (result != null) {
-      setState(() => orders.insert(0, result));
-    }
+    await loadSavedOrders();
   }
 
   Future<void> editOrder(int index) async {
@@ -87,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
         order: orders[index],
         readOnly: orders[index].isClosed,
       )));
-    if (result != null) setState(() => orders[index] = result);
+    await loadSavedOrders();
   }
 
   @override
@@ -291,10 +334,15 @@ class NewOrderScreen extends StatefulWidget {
 class _NewOrderScreenState extends State<NewOrderScreen> {
   final customerController = TextEditingController();
   late final List<_ItemFields> items;
+  int? databaseOrderId;
+  Future<void> _saveQueue = Future<void>.value();
+  late final DateTime orderCreatedAt;
 
   @override
   void initState() {
     super.initState();
+    databaseOrderId = widget.order?.id;
+    orderCreatedAt = widget.order?.createdAt ?? DateTime.now();
     if (widget.order == null) {
       items = [_ItemFields()];
     } else {
@@ -304,6 +352,53 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
   }
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
+
+  Future<bool> persistOrder({bool finalize = false}) {
+    if (widget.readOnly) return Future.value(false);
+
+    final now = DateTime.now();
+    final orderData = <String, Object?>{
+      'customer': customerController.text.trim(),
+      'created_at': orderCreatedAt.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'is_closed': finalize || widget.order?.isClosed == true ? 1 : 0,
+    };
+
+    final productData = items.map((item) => <String, Object?>{
+      'name': item.name.text.trim(),
+      'quantity': item.quantity,
+      'price': item.price,
+    }).toList();
+
+    final task = _saveQueue.then((_) async {
+      if (databaseOrderId == null) {
+        databaseOrderId = await BarDatabase.instance.createOrder(
+          orderData,
+          productData,
+        );
+      } else {
+        await BarDatabase.instance.updateOrder(
+          databaseOrderId!,
+          orderData,
+          productData,
+        );
+      }
+    });
+
+    _saveQueue = task.then<void>(
+      (_) {},
+      onError: (Object error) {
+        if (mounted) {
+          _message('Não foi possível gravar a comanda: $error');
+        }
+      },
+    );
+
+    return task.then<bool>(
+      (_) => true,
+      onError: (Object error) => false,
+    );
+  }
 
   @override
   void dispose() {
@@ -323,15 +418,17 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     if (items.length == 1) {
       items[index].clear();
       setState(() {});
+      persistOrder();
       return;
     }
     setState(() {
       items[index].dispose();
       items.removeAt(index);
     });
+    persistOrder();
   }
 
-  void save({bool finalize = false}) {
+  Future<void> save({bool finalize = false}) async {
     final customer = customerController.text.trim();
     final validItems = items
         .where((item) => item.name.text.trim().isNotEmpty && item.quantity > 0 && item.price > 0)
@@ -347,10 +444,14 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       return;
     }
 
+    final saved = await persistOrder(finalize: finalize);
+    if (!saved || !mounted) return;
+
     Navigator.pop(context, BarOrder(
       customer,
       validItems,
-      createdAt: widget.order?.createdAt,
+      id: databaseOrderId ?? widget.order?.id,
+      createdAt: orderCreatedAt,
       isClosed: finalize || (widget.order?.isClosed ?? false),
     ));
   }
@@ -430,6 +531,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
             controller: customerController,
             readOnly: widget.readOnly,
             textCapitalization: TextCapitalization.words,
+            onChanged: (_) => persistOrder(),
             decoration: decoration('Nome do cliente', hint: 'Ex.: João'),
           ),
           const SizedBox(height: 28),
@@ -591,7 +693,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                 controller: item.name,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: decoration('Produto', hint: 'Nome do produto'),
-                onChanged: (_) => refresh(() {}),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
               ),
               const SizedBox(height: 12),
               TextField(
@@ -599,7 +704,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
                 decoration: decoration('Quantidade', hint: '1'),
-                onChanged: (_) => refresh(() {}),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
               ),
               const SizedBox(height: 12),
               TextField(
@@ -607,7 +715,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
                 decoration: decoration('Preço unitário', hint: '0,00'),
-                onChanged: (_) => refresh(() {}),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
               ),
               const SizedBox(height: 12),
               Align(
