@@ -83,7 +83,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> editOrder(int index) async {
     final result = await Navigator.push<BarOrder>(context,
-      MaterialPageRoute(builder: (_) => NewOrderScreen(order: orders[index])));
+      MaterialPageRoute(builder: (_) => NewOrderScreen(
+        order: orders[index],
+        readOnly: orders[index].isClosed,
+      )));
     if (result != null) setState(() => orders[index] = result);
   }
 
@@ -258,7 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                 Text(
-                  '${order.items.length} itens • ${order.isClosed ? 'FECHADO' : 'Em andamento'}',
+                  '${order.items.length} itens • ${order.isClosed ? 'FINALIZADO' : 'Em andamento'}',
                   style: TextStyle(
                     color: order.isClosed ? const Color(0xFFFF5C5C) : const Color(0xFFFFD45A),
                     fontSize: 12,
@@ -278,7 +281,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class NewOrderScreen extends StatefulWidget {
   final BarOrder? order;
-  const NewOrderScreen({super.key, this.order});
+  final bool readOnly;
+  const NewOrderScreen({super.key, this.order, this.readOnly = false});
 
   @override
   State<NewOrderScreen> createState() => _NewOrderScreenState();
@@ -356,17 +360,17 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: panel,
-        title: const Text('Finalizar pedido?'),
-        content: const Text('A comanda será marcada como fechada.'),
+        title: const Text('Tem certeza?'),
+        content: const Text('Deseja realmente finalizar esta comanda?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
+            child: const Text('CANCELAR'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF5C5C)),
+            style: FilledButton.styleFrom(backgroundColor: green, foregroundColor: const Color(0xFF17200F)),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Finalizar'),
+            child: const Text('SIM'),
           ),
         ],
       ),
@@ -392,19 +396,39 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final createdAt = widget.order?.createdAt ?? DateTime.now();
+    const weekdays = [
+      'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'
+    ];
+    final orderDate = '${weekdays[createdAt.weekday - 1]}, '
+        '${createdAt.day.toString().padLeft(2, '0')}/'
+        '${createdAt.month.toString().padLeft(2, '0')}/${createdAt.year}';
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.order == null ? 'Nova comanda' : 'Editar comanda', style: const TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(
+          widget.readOnly ? 'Comanda finalizada' :
+          widget.order == null ? 'Nova comanda' : 'Editar comanda',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
         backgroundColor: const Color(0xFF101211),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('DADOS DO CLIENTE',
-              style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.3)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('DADOS DO CLIENTE',
+                  style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.3)),
+              Text(orderDate,
+                  style: const TextStyle(color: muted, fontSize: 11, letterSpacing: .5)),
+            ],
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: customerController,
+            readOnly: widget.readOnly,
             textCapitalization: TextCapitalization.words,
             decoration: decoration('Nome do cliente', hint: 'Ex.: João'),
           ),
@@ -416,7 +440,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                     style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
               ),
               TextButton.icon(
-                onPressed: addItem,
+                onPressed: widget.readOnly ? null : addItem,
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('Adicionar'),
                 style: TextButton.styleFrom(foregroundColor: green),
@@ -441,7 +465,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          if (widget.order?.isClosed != true)
+          if (!widget.readOnly && widget.order?.isClosed != true)
             SizedBox(
               height: 52,
               child: OutlinedButton.icon(
@@ -456,12 +480,13 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                 ),
               ),
             )
-          else
-            const Text('PEDIDO FECHADO',
+          else if (widget.readOnly)
+            const Text('PEDIDO FINALIZADO',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFFFF5C5C), fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
-          SizedBox(
+          if (!widget.readOnly)
+            SizedBox(
             height: 56,
             child: FilledButton.icon(
               onPressed: save,
@@ -478,7 +503,8 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
           const SizedBox(height: 12),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: muted)),
+            child: Text(widget.readOnly ? 'Voltar' : 'Cancelar',
+                style: const TextStyle(color: muted)),
           ),
         ],
       ),
@@ -512,7 +538,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
           ...List.generate(items.length, (index) {
             final item = items[index];
             return InkWell(
-              onTap: () => _editItem(index),
+              onTap: widget.readOnly ? null : () => _editItem(index),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 19),
                 child: Row(
