@@ -1,3 +1,4 @@
+import 'database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -23,13 +24,34 @@ class OrderItem {
 }
 
 class BarOrder {
+  final int? id;
   final String customer;
   final List<OrderItem> items;
   final DateTime createdAt;
+  final bool isClosed;
 
-  BarOrder(this.customer, this.items) : createdAt = DateTime.now();
+  BarOrder(this.customer, this.items, {
+    this.id,
+    DateTime? createdAt,
+    this.isClosed = false,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
+
+  factory BarOrder.fromMap(Map<String, Object?> row) {
+    final savedItems = row['items'] as List<Map<String, Object?>>;
+    return BarOrder(
+      row['customer'] as String,
+      savedItems.map((item) => OrderItem(
+        item['name'] as String,
+        (item['quantity'] as num).toDouble(),
+        (item['price'] as num).toDouble(),
+      )).toList(),
+      id: row['id'] as int,
+      createdAt: DateTime.parse(row['created_at'] as String),
+      isClosed: (row['is_closed'] as int) == 1,
+    );
+  }
 }
 
 class SouzasBarApp extends StatelessWidget {
@@ -63,6 +85,33 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final List<BarOrder> orders = [];
+  bool loadingOrders = true;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSavedOrders();
+  }
+
+  Future<void> loadSavedOrders() async {
+    try {
+      final rows = await BarDatabase.instance.loadOrders();
+      final loaded = rows.map((row) => BarOrder.fromMap(row)).toList();
+      if (!mounted) return;
+      setState(() {
+        orders
+          ..clear()
+          ..addAll(loaded);
+        loadingOrders = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => loadingOrders = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao carregar comandas: $e')),
+      );
+    }
+  }
 
   double get total => orders.fold(0, (sum, order) => sum + order.total);
 
@@ -72,9 +121,16 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const NewOrderScreen()),
     );
 
-    if (result != null) {
-      setState(() => orders.insert(0, result));
-    }
+    await loadSavedOrders();
+  }
+
+  Future<void> editOrder(int index) async {
+    final result = await Navigator.push<BarOrder>(context,
+      MaterialPageRoute(builder: (_) => NewOrderScreen(
+        order: orders[index],
+        readOnly: orders[index].isClosed,
+      )));
+    await loadSavedOrders();
   }
 
   @override
@@ -150,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       _metric('CLIENTES', '${orders.length}'),
                       const SizedBox(width: 28),
-                      _metric('COMANDAS ABERTAS', '${orders.length}'),
+                      _metric('COMANDAS ABERTAS', '${orders.where((order) => !order.isClosed).length}'),
                     ],
                   ),
                 ],
@@ -200,12 +256,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     SizedBox(height: 6),
                     Text('As comandas abertas aparecerão aqui.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: muted, fontSize: 12)),
+                        style: TextStyle(color: Color(0xFFFFD45A), fontSize: 12)),
                   ],
                 ),
               )
             else
-              ...orders.map((order) => _orderCard(order)),
+              ...List.generate(orders.length, (i) => _orderCard(orders[i], i)),
             const SizedBox(height: 25),
             const Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -231,33 +287,45 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  Widget _orderCard(BarOrder order) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
-    child: Row(
-      children: [
-        const Icon(Icons.receipt_long, color: green, size: 27),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-              Text('${order.items.length} itens • Em andamento',
-                  style: const TextStyle(color: muted, fontSize: 12)),
-            ],
+  Widget _orderCard(BarOrder order, int index) => InkWell(
+    onTap: () => editOrder(index),
+    borderRadius: BorderRadius.circular(20),
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        children: [
+          const Icon(Icons.receipt_long, color: green, size: 27),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(order.customer, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                Text(
+                  '${order.items.length} itens • ${order.isClosed ? 'FINALIZADO' : 'Em andamento'}',
+                  style: TextStyle(
+                    color: order.isClosed ? const Color(0xFFFF5C5C) : const Color(0xFFFFD45A),
+                    fontSize: 12,
+                    fontWeight: order.isClosed ? FontWeight.w800 : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        Text(money(order.total),
-            style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
-      ],
+          Text(money(order.total),
+              style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
+        ],
+      ),
     ),
   );
 }
 
 class NewOrderScreen extends StatefulWidget {
-  const NewOrderScreen({super.key});
+  final BarOrder? order;
+  final bool readOnly;
+  const NewOrderScreen({super.key, this.order, this.readOnly = false});
 
   @override
   State<NewOrderScreen> createState() => _NewOrderScreenState();
@@ -265,9 +333,72 @@ class NewOrderScreen extends StatefulWidget {
 
 class _NewOrderScreenState extends State<NewOrderScreen> {
   final customerController = TextEditingController();
-  final List<_ItemFields> items = [_ItemFields()];
+  late final List<_ItemFields> items;
+  int? databaseOrderId;
+  Future<void> _saveQueue = Future<void>.value();
+  late final DateTime orderCreatedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    databaseOrderId = widget.order?.id;
+    orderCreatedAt = widget.order?.createdAt ?? DateTime.now();
+    if (widget.order == null) {
+      items = [_ItemFields()];
+    } else {
+      customerController.text = widget.order!.customer;
+      items = widget.order!.items.map((item) => _ItemFields.fromItem(item)).toList();
+    }
+  }
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
+
+  Future<bool> persistOrder({bool finalize = false}) {
+    if (widget.readOnly) return Future.value(false);
+
+    final now = DateTime.now();
+    final orderData = <String, Object?>{
+      'customer': customerController.text.trim(),
+      'created_at': orderCreatedAt.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+      'is_closed': finalize || widget.order?.isClosed == true ? 1 : 0,
+    };
+
+    final productData = items.map((item) => <String, Object?>{
+      'name': item.name.text.trim(),
+      'quantity': item.quantity,
+      'price': item.price,
+    }).toList();
+
+    final task = _saveQueue.then((_) async {
+      if (databaseOrderId == null) {
+        databaseOrderId = await BarDatabase.instance.createOrder(
+          orderData,
+          productData,
+        );
+      } else {
+        await BarDatabase.instance.updateOrder(
+          databaseOrderId!,
+          orderData,
+          productData,
+        );
+      }
+    });
+
+    _saveQueue = task.then<void>(
+      (_) {},
+      onError: (Object error) {
+        if (mounted) {
+          _message('Não foi possível gravar a comanda: $error');
+        }
+      },
+    );
+
+    return task.then<bool>(
+      (_) => true,
+      onError: (Object error) => false,
+    );
+  }
 
   @override
   void dispose() {
@@ -278,21 +409,26 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     super.dispose();
   }
 
-  void addItem() => setState(() => items.add(_ItemFields()));
+  Future<void> addItem() async {
+    setState(() => items.add(_ItemFields()));
+    await _editItem(items.length - 1, isNew: true);
+  }
 
   void removeItem(int index) {
     if (items.length == 1) {
       items[index].clear();
       setState(() {});
+      persistOrder();
       return;
     }
     setState(() {
       items[index].dispose();
       items.removeAt(index);
     });
+    persistOrder();
   }
 
-  void save() {
+  Future<void> save({bool finalize = false}) async {
     final customer = customerController.text.trim();
     final validItems = items
         .where((item) => item.name.text.trim().isNotEmpty && item.quantity > 0 && item.price > 0)
@@ -308,7 +444,39 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       return;
     }
 
-    Navigator.pop(context, BarOrder(customer, validItems));
+    final saved = await persistOrder(finalize: finalize);
+    if (!saved || !mounted) return;
+
+    Navigator.pop(context, BarOrder(
+      customer,
+      validItems,
+      id: databaseOrderId ?? widget.order?.id,
+      createdAt: orderCreatedAt,
+      isClosed: finalize || (widget.order?.isClosed ?? false),
+    ));
+  }
+
+  Future<void> finalizeOrder() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: panel,
+        title: const Text('Tem certeza?'),
+        content: const Text('Deseja realmente finalizar esta comanda?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCELAR'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: green, foregroundColor: const Color(0xFF17200F)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('SIM'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) save(finalize: true);
   }
 
   void _message(String message) {
@@ -329,20 +497,41 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final createdAt = widget.order?.createdAt ?? DateTime.now();
+    const weekdays = [
+      'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'
+    ];
+    final orderDate = '${weekdays[createdAt.weekday - 1]}, '
+        '${createdAt.day.toString().padLeft(2, '0')}/'
+        '${createdAt.month.toString().padLeft(2, '0')}/${createdAt.year}';
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nova comanda', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(
+          widget.readOnly ? 'Comanda finalizada' :
+          widget.order == null ? 'Nova comanda' : 'Editar comanda',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
         backgroundColor: const Color(0xFF101211),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('DADOS DO CLIENTE',
-              style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.3)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('DADOS DO CLIENTE',
+                  style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.3)),
+              Text(orderDate,
+                  style: const TextStyle(color: muted, fontSize: 11, letterSpacing: .5)),
+            ],
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: customerController,
+            readOnly: widget.readOnly,
             textCapitalization: TextCapitalization.words,
+            onChanged: (_) => persistOrder(),
             decoration: decoration('Nome do cliente', hint: 'Ex.: João'),
           ),
           const SizedBox(height: 28),
@@ -353,7 +542,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                     style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
               ),
               TextButton.icon(
-                onPressed: addItem,
+                onPressed: widget.readOnly ? null : addItem,
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('Adicionar'),
                 style: TextButton.styleFrom(foregroundColor: green),
@@ -361,24 +550,45 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          ...List.generate(items.length, (index) => _itemCard(index)),
+          _productTable(),
           const SizedBox(height: 20),
           Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(20)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('TOTAL DA COMANDA',
-                    style: TextStyle(color: muted, fontSize: 11, letterSpacing: 1.2)),
-                const SizedBox(height: 7),
+                const Expanded(
+                  child: Text('TOTAL DA COMANDA',
+                    style: TextStyle(color: muted, fontSize: 16, fontWeight: FontWeight.w800)),
+                ),
                 Text(money(total),
-                    style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: green)),
+                  style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: green)),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          SizedBox(
+          const SizedBox(height: 12),
+          if (!widget.readOnly && widget.order?.isClosed != true)
+            SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: finalizeOrder,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('FINALIZAR PEDIDO',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFFF5C5C),
+                  side: const BorderSide(color: Color(0xFFFF5C5C)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            )
+          else if (widget.readOnly)
+            const Text('PEDIDO FINALIZADO',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFFFF5C5C), fontWeight: FontWeight.w800)),
+          const SizedBox(height: 16),
+          if (!widget.readOnly)
+            SizedBox(
             height: 56,
             child: FilledButton.icon(
               onPressed: save,
@@ -395,81 +605,167 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
           const SizedBox(height: 12),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: muted)),
+            child: Text(widget.readOnly ? 'Voltar' : 'Cancelar',
+                style: const TextStyle(color: muted)),
           ),
         ],
       ),
     );
   }
 
-  Widget _itemCard(int index) {
-    final item = items[index];
+
+  Widget _productTable() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(18)),
+      decoration: BoxDecoration(
+        color: panel,
+        border: Border.all(color: muted.withOpacity(.35)),
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('PRODUTO ${index + 1}',
-                    style: const TextStyle(color: muted, fontSize: 10, letterSpacing: 1.2)),
-              ),
-              IconButton(
-                onPressed: () => removeItem(index),
-                icon: const Icon(Icons.delete_outline),
-                color: muted,
-                tooltip: 'Remover item',
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 17),
+            decoration: const BoxDecoration(
+              color: Color(0xFF252820),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(17)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 5, child: Text('Produto', style: TextStyle(fontWeight: FontWeight.w800))),
+                Expanded(flex: 1, child: Text('Qtd.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800))),
+                Expanded(flex: 2, child: Text('Valor', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w800))),
+              ],
+            ),
           ),
-          TextField(
-            controller: item.name,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: decoration('Nome do produto', hint: 'Ex.: Refrigerante'),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: item.quantityController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
-                  decoration: decoration('Quantidade', hint: '1'),
-                  onChanged: (_) => setState(() {}),
+          ...List.generate(items.length, (index) {
+            final item = items[index];
+            return InkWell(
+              onTap: widget.readOnly ? null : () => _editItem(index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 19),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: Text(
+                        item.name.text.isEmpty ? 'Novo produto' : item.name.text,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 1,
+                      child: Text(
+                        item.quantityController.text,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        money(item.total),
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: item.priceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
-                  decoration: decoration('Preço unitário', hint: '0,00'),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              const Text('Subtotal: ', style: TextStyle(color: muted)),
-              Text(money(item.total),
-                  style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
-            ],
-          ),
+            );
+          }),
         ],
       ),
     );
   }
+
+  Future<void> _editItem(int index, {bool isNew = false}) async {
+    final item = items[index];
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => AlertDialog(
+          backgroundColor: panel,
+          title: Text(isNew ? 'Adicionar produto' : 'Editar produto'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: item.name,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: decoration('Produto', hint: 'Nome do produto'),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: item.quantityController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
+                decoration: decoration('Quantidade', hint: '1'),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: item.priceController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]'))],
+                decoration: decoration('Preço unitário', hint: '0,00'),
+                onChanged: (_) {
+                  refresh(() {});
+                  persistOrder();
+                },
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Subtotal: ${money(item.total)}',
+                  style: const TextStyle(color: green, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Remover', style: TextStyle(color: Colors.redAccent)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true) {
+      if (result == false || isNew) {
+        removeItem(index);
+      }
+      return;
+    }
+    setState(() {});
+  }
+
 }
 
 class _ItemFields {
+  _ItemFields();
+  _ItemFields.fromItem(OrderItem item) {
+    name.text = item.name;
+    quantityController.text = item.quantity.toString();
+    priceController.text = item.price.toString();
+  }
   final name = TextEditingController();
   final quantityController = TextEditingController(text: '1');
   final priceController = TextEditingController();
