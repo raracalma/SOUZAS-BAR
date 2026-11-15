@@ -130,6 +130,51 @@ class _HomeScreenState extends State<HomeScreen> {
     await loadSavedOrders();
   }
 
+  Future<void> confirmDeleteOrder(BarOrder order) async {
+    if (order.id == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: panel,
+        title: const Text('Excluir comanda?'),
+        content: Text(
+          'Deseja excluir a comanda de ${order.customer.isEmpty ? 'cliente sem nome' : order.customer}? Todos os produtos associados também serão removidos. Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCELAR'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFFF5C5C),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('EXCLUIR'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await BarDatabase.instance.deleteOrder(order.id!);
+      await loadSavedOrders();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Comanda excluída com sucesso.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao excluir comanda: $e')),
+      );
+    }
+  }
+
   Future<void> editOrder(int index) async {
     final result = await Navigator.push<BarOrder>(context,
       MaterialPageRoute(builder: (_) => NewOrderScreen(
@@ -322,6 +367,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Text(money(order.total),
               style: const TextStyle(color: green, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 6),
+          IconButton(
+            tooltip: 'Excluir comanda',
+            onPressed: () => confirmDeleteOrder(order),
+            icon: const Icon(Icons.delete_outline_rounded,
+                color: Color(0xFFFF5C5C), size: 21),
+            visualDensity: VisualDensity.compact,
+          ),
         ],
       ),
     ),

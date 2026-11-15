@@ -101,6 +101,11 @@ class BarDatabase {
     return result;
   }
 
+  Future<void> deleteOrder(int id) async {
+    final db = await database;
+    await db.delete('orders', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> saveSetting(String key, String value) async {
     final db = await database;
     await db.insert('settings', {'key': key, 'value': value},
