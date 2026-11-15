@@ -29,11 +29,15 @@ class BarOrder {
   final List<OrderItem> items;
   final DateTime createdAt;
   final bool isClosed;
+  final String paymentMethod;
+  final double amountReceived;
 
   BarOrder(this.customer, this.items, {
     this.id,
     DateTime? createdAt,
     this.isClosed = false,
+    this.paymentMethod = '',
+    this.amountReceived = 0,
   }) : createdAt = createdAt ?? DateTime.now();
 
   double get total => items.fold(0, (sum, item) => sum + item.total);
@@ -50,6 +54,8 @@ class BarOrder {
       id: row['id'] as int,
       createdAt: DateTime.parse(row['created_at'] as String),
       isClosed: (row['is_closed'] as int) == 1,
+      paymentMethod: row['payment_method'] as String? ?? '',
+      amountReceived: (row['amount_received'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -333,6 +339,8 @@ class NewOrderScreen extends StatefulWidget {
 
 class _NewOrderScreenState extends State<NewOrderScreen> {
   final customerController = TextEditingController();
+  final receivedController = TextEditingController();
+  String paymentMethod = '';
   late final List<_ItemFields> items;
   int? databaseOrderId;
   Future<void> _saveQueue = Future<void>.value();
@@ -347,6 +355,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       items = [_ItemFields()];
     } else {
       customerController.text = widget.order!.customer;
+      paymentMethod = widget.order!.paymentMethod;
+      if (widget.order!.amountReceived > 0) {
+        receivedController.text = widget.order!.amountReceived.toStringAsFixed(2);
+      }
       items = widget.order!.items.map((item) => _ItemFields.fromItem(item)).toList();
     }
   }
@@ -362,6 +374,8 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       'created_at': orderCreatedAt.toIso8601String(),
       'updated_at': now.toIso8601String(),
       'is_closed': finalize || widget.order?.isClosed == true ? 1 : 0,
+      'payment_method': paymentMethod,
+      'amount_received': number(receivedController.text),
     };
 
     final productData = items.map((item) => <String, Object?>{
@@ -403,6 +417,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
   @override
   void dispose() {
     customerController.dispose();
+    receivedController.dispose();
     for (final item in items) {
       item.dispose();
     }
@@ -453,6 +468,8 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       id: databaseOrderId ?? widget.order?.id,
       createdAt: orderCreatedAt,
       isClosed: finalize || (widget.order?.isClosed ?? false),
+      paymentMethod: paymentMethod,
+      amountReceived: number(receivedController.text),
     ));
   }
 
@@ -563,6 +580,85 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                 ),
                 Text(money(total),
                   style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: green)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: panel,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('FORMA DE PAGAMENTO',
+                  style: TextStyle(color: muted, fontSize: 11,
+                    fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: ['Dinheiro', 'Pix', 'Cartão'].map((method) {
+                    return ChoiceChip(
+                      label: Text(method),
+                      selected: paymentMethod == method,
+                      onSelected: widget.readOnly ? null : (selected) {
+                        setState(() {
+                          paymentMethod = selected ? method : '';
+                          if (paymentMethod != 'Dinheiro') {
+                            receivedController.clear();
+                          }
+                        });
+                        persistOrder();
+                      },
+                      selectedColor: green,
+                      labelStyle: TextStyle(
+                        color: paymentMethod == method
+                            ? const Color(0xFF17200F) : Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (paymentMethod == 'Dinheiro') ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: receivedController,
+                    readOnly: widget.readOnly,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]')),
+                    ],
+                    decoration: decoration('Valor recebido (R\$)', hint: '200,00'),
+                    onChanged: (_) {
+                      setState(() {});
+                      persistOrder();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Builder(builder: (context) {
+                    final received = number(receivedController.text);
+                    final difference = received - total;
+                    final hasValue = receivedController.text.trim().isNotEmpty;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          difference >= 0 ? 'TROCO' : 'FALTA',
+                          style: const TextStyle(
+                            color: muted, fontWeight: FontWeight.w800),
+                        ),
+                        Text(
+                          hasValue ? money(difference.abs()) : money(0),
+                          style: TextStyle(
+                            color: difference >= 0 ? green : const Color(0xFFFFD45A),
+                            fontSize: 22, fontWeight: FontWeight.w900),
+                        ),
+                      ],
+                    );
+                  }),
+                ],
               ],
             ),
           ),

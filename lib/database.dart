@@ -11,7 +11,7 @@ class BarDatabase {
     final root = await getDatabasesPath();
     _db = await openDatabase(
       p.join(root, 'souzas_bar.db'),
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE orders (
@@ -19,7 +19,9 @@ class BarDatabase {
             customer TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            is_closed INTEGER NOT NULL DEFAULT 0
+            is_closed INTEGER NOT NULL DEFAULT 0,
+            payment_method TEXT NOT NULL DEFAULT '',
+            amount_received REAL NOT NULL DEFAULT 0
           )
         ''');
         await db.execute('''
@@ -42,7 +44,14 @@ class BarDatabase {
         await db.execute('CREATE INDEX idx_items_order ON order_items(order_id)');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        // Migrações incrementais serão adicionadas nas próximas versões.
+        if (oldVersion < 2) {
+          await db.execute(
+            "ALTER TABLE orders ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''"
+          );
+          await db.execute(
+            'ALTER TABLE orders ADD COLUMN amount_received REAL NOT NULL DEFAULT 0'
+          );
+        }
       },
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
