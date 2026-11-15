@@ -26,6 +26,17 @@ jobs:
             cp -R /tmp/souzas_bar_scaffold/android ./android
           fi
 
+      - name: Configurar nome do aplicativo
+        run: |
+          python3 - <<'PYNAME'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          s = s.replace('android:label="souzas_bar"', 'android:label="Comanda Souza\'s"')
+          p.write_text(s)
+          print("Nome do aplicativo configurado.")
+          PYNAME
+
       - name: Preparar assinatura
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -76,6 +87,9 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
 
+      - name: Gerar icones oficiais
+        run: dart run flutter_launcher_icons
+
       - name: Compilar APK Release
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
@@ -84,8 +98,12 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release
 
+      - name: Renomear APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/souzas-bar-v-0.7.0.apk
+
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: souzas-bar-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: souzas-bar-v-0.7.0
+          path: build/app/outputs/flutter-apk/souzas-bar-v-0.7.0.apk
