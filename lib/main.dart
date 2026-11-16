@@ -210,7 +210,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: green.withValues(alpha: .13),
                     borderRadius: BorderRadius.circular(15),
                   ),
-                  child: const Icon(Icons.sports_bar, color: green, size: 26),
+                  child: Image.asset(
+                    'assets/images/souzas_bar_logo.png',
+                    width: 42,
+                    height: 42,
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(

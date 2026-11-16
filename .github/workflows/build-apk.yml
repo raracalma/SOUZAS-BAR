@@ -100,10 +100,10 @@ jobs:
 
       - name: Renomear APK
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/souzas-bar-v-0.7.0.apk
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/souzas-bar-v-0.7.1.apk
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: souzas-bar-v-0.7.0
-          path: build/app/outputs/flutter-apk/souzas-bar-v-0.7.0.apk
+          name: souzas-bar-v-0.7.1
+          path: build/app/outputs/flutter-apk/souzas-bar-v-0.7.1.apk
