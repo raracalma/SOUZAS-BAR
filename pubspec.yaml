@@ -1,7 +1,7 @@
 name: souzas_bar
 description: Aplicativo de comandas e gestao do Souza's Bar
 publish_to: 'none'
-version: 0.7.1+8
+version: 0.7.2+9
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -24,7 +24,8 @@ flutter:
     - assets/images/souzas_bar_logo.png
 
 flutter_launcher_icons:
-  android: true
+  android: launcher_icon
+  image_path_android: assets/images/souzas_bar_logo.png
   ios: false
   image_path: assets/images/souzas_bar_logo.png
   adaptive_icon_background: "#1B201D"

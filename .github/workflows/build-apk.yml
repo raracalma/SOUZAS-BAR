@@ -33,6 +33,7 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
           s = s.replace('android:label="souzas_bar"', 'android:label="Comanda Souza\'s"')
+          s = s.replace('android:icon="@mipmap/ic_launcher"', 'android:icon="@mipmap/launcher_icon"')
           p.write_text(s)
           print("Nome do aplicativo configurado.")
           PYNAME
@@ -90,6 +91,44 @@ jobs:
       - name: Gerar icones oficiais
         run: dart run flutter_launcher_icons
 
+      - name: Validar icone personalizado
+        run: |
+          python3 - <<'PYICON'
+          from pathlib import Path
+
+          res = Path("android/app/src/main/res")
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
+
+          if 'android:icon="@mipmap/launcher_icon"' not in manifest:
+              raise SystemExit("ERRO: manifesto nao aponta para launcher_icon.")
+
+          icons = list(res.rglob("launcher_icon.png"))
+          if not icons:
+              raise SystemExit("ERRO: icone launcher_icon.png nao foi gerado.")
+
+          for icon in icons:
+              if not icon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                  raise SystemExit(f"ERRO: arquivo de icone invalido: {icon}")
+
+          adaptive = res / "mipmap-anydpi-v26/launcher_icon.xml"
+          if not adaptive.is_file():
+              raise SystemExit("ERRO: icone adaptativo nao foi gerado.")
+
+          adaptive_xml = adaptive.read_text()
+          if '@drawable/ic_launcher_foreground' not in adaptive_xml:
+              raise SystemExit("ERRO: XML adaptativo nao referencia a imagem frontal.")
+
+          foreground = list(res.glob("drawable-*/ic_launcher_foreground.png"))
+          if not foreground:
+              raise SystemExit("ERRO: imagem frontal do icone adaptativo ausente.")
+
+          for icon in foreground:
+              if not icon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                  raise SystemExit(f"ERRO: imagem frontal invalida: {icon}")
+
+          print("OK: manifesto, icones PNG e icone adaptativo validados.")
+          PYICON
+
       - name: Compilar APK Release
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/souzas-bar-release.jks
@@ -100,10 +139,10 @@ jobs:
 
       - name: Renomear APK
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/souzas-bar-v-0.7.1.apk
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/souzas-bar-v-0.7.2.apk
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: souzas-bar-v-0.7.1
-          path: build/app/outputs/flutter-apk/souzas-bar-v-0.7.1.apk
+          name: souzas-bar-v-0.7.2
+          path: build/app/outputs/flutter-apk/souzas-bar-v-0.7.2.apk
